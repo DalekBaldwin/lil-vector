@@ -42,7 +42,7 @@ difference between number and next power of base (anti-remainder)"
                      (values log (- number cur) diff))))))
        (%log-floor 0 1)))))
 
-(let* ((bits 5) ;; make interface parametric with respect to branching factor
+(let* ((bits 2) ;; make interface parametric with respect to branching factor
        (width (ash 1 bits))
        (mask (1- width)))
   (defun get-depth (size)
@@ -66,6 +66,37 @@ difference between number and next power of base (anti-remainder)"
          (reduce #'aref (path-to index size) :initial-value node))
         (otherwise
          (error "bad index")))))
+
+  (defun static-pbvt (&rest arguments)
+    (let ((size (length arguments)))
+      (cond
+        ((endp arguments)
+         (empty-pbvt))
+        (t
+         (labels ((rec (stuff size)
+                    (let* ((array-chunks
+                            (loop for chunk on stuff
+                               by (lambda (x) (nthcdr width x))
+                               for remaining = size then (- remaining width)
+                               collect
+                                 (make-array
+                                  (list width)
+                                  :initial-contents
+                                  (cond
+                                    ((<= remaining width)
+                                     (append (subseq chunk 0 remaining)
+                                             (loop repeat (- width remaining)
+                                                collect _unbound_)))
+                                    (t (subseq chunk 0 width)))))))
+                      (cond
+                        ((<= size width)
+                         (first array-chunks))
+                        (t
+                         (rec array-chunks (length array-chunks)))))))
+           (make-instance
+            'pbvt
+            :size size
+            :node (rec arguments size)))))))
 
   (defun update-pbvt (pbvt index value)
     (with-slots (node size) pbvt
@@ -94,18 +125,22 @@ difference between number and next power of base (anti-remainder)"
 
   (defun map-pbvt (pbvt fun)
     (with-slots (node size) pbvt
-      (let ((level (get-depth size)))
-        (labels ((%map (level node)
-                   (cond
-                     ((zerop level)
-                      (loop for val across node
-                         until (eql val _unbound_)
-                         collect (funcall fun val)))
-                     (t
-                      (loop for next-node across node
-                         until (eql next-node _unbound_)
-                         append (%map (1- level) next-node))))))
-          (%map level node)))))
+      (cond
+        ((zerop size)
+         nil)
+        (t
+         (let ((level (get-depth size)))
+           (labels ((%map (level node)
+                      (cond
+                        ((zerop level)
+                         (loop for val across node
+                            until (eql val _unbound_)
+                            collect (funcall fun val)))
+                        (t
+                         (loop for next-node across node
+                            until (eql next-node _unbound_)
+                            append (%map (1- level) next-node))))))
+             (%map level node)))))))
 
   (defun collect-all (pbvt)
     (map-pbvt pbvt #'identity))
