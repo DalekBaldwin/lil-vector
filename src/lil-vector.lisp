@@ -49,15 +49,15 @@ difference between number and next power of base (anti-remainder)"
     (log-floor (1- size) width))
 
   (defun path-to (index size)
-    (let* ((level (* bits (get-depth size))))
-      (labels ((%path-to (level)
+    (let ((level (* bits (get-depth size))))
+      (labels ((%path-to (accum level)
                  (cond
                    ((zerop level)
-                    (list (logand index mask)))
+                    (nreverse (list* (logand index mask) accum)))
                    (t
-                    (list* (logand (ash index (- level)) mask)
-                           (%path-to (- level bits)))))))
-        (%path-to level))))
+                    (%path-to (list* (logand (ash index (- level)) mask) accum)
+                              (- level bits))))))
+        (%path-to nil level))))
 
   (defun lookup-pbvt (pbvt index)
     (with-slots (node size) pbvt
