@@ -68,12 +68,13 @@ difference between number and next power of base (anti-remainder)"
          (error "bad index")))))
 
   (defun static-pbvt (&rest arguments)
-    (let ((size (length arguments)))
-      (cond
-        ((endp arguments)
-         (empty-pbvt))
-        (t
-         (labels ((rec (stuff size)
+    "When creating a vector from a known list of contents, we can allocate exactly the memory we require instead of recursively conj-ing and throwing away partially-filled arrays."
+    (cond
+      ((endp arguments)
+       (empty-pbvt))
+      (t
+       (let ((size (length arguments)))
+         (labels ((%static (stuff size)
                     (let* ((array-chunks
                             (loop for chunk on stuff
                                by (lambda (x) (nthcdr width x))
@@ -92,11 +93,11 @@ difference between number and next power of base (anti-remainder)"
                         ((<= size width)
                          (first array-chunks))
                         (t
-                         (rec array-chunks (length array-chunks)))))))
+                         (%static array-chunks (length array-chunks)))))))
            (make-instance
             'pbvt
             :size size
-            :node (rec arguments size)))))))
+            :node (%static arguments size)))))))
 
   (defun update-pbvt (pbvt index value)
     (with-slots (node size) pbvt
