@@ -47,7 +47,7 @@ difference between number and next power of base (anti-remainder)"
        (mask (1- width)))
   (defun get-depth (size)
     (log-floor (1- size) width))
-  
+
   (defun path-to (index size)
     (let* ((level (* bits (get-depth size))))
       (labels ((%path-to (level)
@@ -58,7 +58,7 @@ difference between number and next power of base (anti-remainder)"
                     (list* (logand (ash index (- level)) mask)
                            (%path-to (- level bits)))))))
         (%path-to level))))
-  
+
   (defun lookup-pbvt (pbvt index)
     (with-slots (node size) pbvt
       (case (signum (floor index size))
@@ -66,7 +66,7 @@ difference between number and next power of base (anti-remainder)"
          (reduce #'aref (path-to index size) :initial-value node))
         (otherwise
          (error "bad index")))))
-  
+
   (defun update-pbvt (pbvt index value)
     (with-slots (node size) pbvt
       (case (signum (floor index size))
@@ -91,22 +91,25 @@ difference between number and next power of base (anti-remainder)"
               :node (%update path node)))))
         (otherwise
          (error "bad index")))))
-  
+
+  (defun map-pbvt (pbvt fun)
+    (with-slots (node size) pbvt
+      (let ((level (get-depth size)))
+        (labels ((%map (level node)
+                   (cond
+                     ((zerop level)
+                      (loop for val across node
+                         until (eql val _unbound_)
+                         collect (funcall fun val)))
+                     (t
+                      (loop for next-node across node
+                         until (eql next-node _unbound_)
+                         append (%map (1- level) next-node))))))
+          (%map level node)))))
+
   (defun collect-all (pbvt)
-    (let ((level (get-depth (slot-value pbvt 'size))))
-      (labels ((%collect-all (node level)
-                 (cond
-                   ((eql node _unbound_)
-                    nil)
-                   ((zerop level)
-                    (remove-if (lambda (x) (eql x _unbound_))
-                               (map 'list #'identity node)))
-                   (t
-                    (apply #'append (map 'list
-                                         (lambda (x) (%collect-all x (1- level)))
-                                         node))))))
-        (%collect-all (slot-value pbvt 'node) level))))
-  
+    (map-pbvt pbvt #'identity))
+
   (defun conj-pbvt (pbvt value)
     (with-slots (node size) pbvt
       (case size
@@ -197,7 +200,7 @@ difference between number and next power of base (anti-remainder)"
                    'pbvt
                    :size (1+ size)
                    :node (%conj path (copy-seq node))))))))))))
-  
+
   (defun pop-pbvt (pbvt)
     (with-slots (node size) pbvt
       (case size
