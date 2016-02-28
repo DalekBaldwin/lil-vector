@@ -55,9 +55,9 @@ difference between number and next power of base (anti-remainder)"
                    ((zerop level)
                     (nreverse (list* (logand index mask) accum)))
                    (t
-                    (%path-to (list* (logand (ash index (- level)) mask) accum)
-                              (- level bits))))))
-        (%path-to nil level))))
+                    (%path-to (list* (logand (ash index level) mask) accum)
+                              (+ level bits))))))
+        (%path-to nil (- level)))))
 
   (defun lookup-pbvt (pbvt index)
     (with-slots (node size) pbvt
