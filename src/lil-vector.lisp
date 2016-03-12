@@ -36,8 +36,66 @@ difference between number and next power of base (anti-remainder)"
                   (values log (- number cur) diff))))))
     (%log-floor 0 1)))
 
+(defun lookup-pbvt (pbvt index)
+    (with-slots (node size) pbvt
+      (case (signum (floor index size))
+        (0
+         (reduce #'aref (path-to index size) :initial-value node))
+        (otherwise
+         (error "bad index")))))
+
+(defun update-pbvt (pbvt index value)
+  (with-slots (node size) pbvt
+    (case (signum (floor index size))
+      (0
+       (let ((path (path-to index size)))
+         (labels ((%update (path node)
+                    (destructuring-bind (first-path . rest-path) path
+                      (let ((new-node (copy-seq node)))
+                        (cond
+                          ((endp rest-path)
+                           (setf (aref new-node first-path) value)
+                           new-node)
+                          (t
+                           (setf (aref new-node first-path)
+                                 (%update
+                                  rest-path
+                                  (aref node first-path)))
+                           new-node))))))
+           (make-instance
+            'pbvt
+            :size size
+            :node (%update path node)))))
+      (otherwise
+       (error "bad index")))))
+
+(defun map-pbvt (pbvt fun)
+  (with-slots (node size) pbvt
+    (cond
+      ((zerop size)
+       nil)
+      (t
+       (let ((level (get-depth size)))
+         (labels ((%map (level node)
+                    (cond
+                      ((zerop level)
+                       (loop for val across node
+                          until (eql val +unbound+)
+                          collect (funcall fun val)))
+                      (t
+                       (loop for next-node across node
+                          until (eql next-node +unbound+)
+                          append (%map (1- level) next-node))))))
+           (%map level node)))))))
+
+(defun collect-all (pbvt)
+  (map-pbvt pbvt #'identity))
+
 (let* ((bits 5) ;; make interface parametric with respect to branching factor
        (width (ash 1 bits))
+       (width-1 (1- width))
+       (width-2 (- width 2))
+       (width-dim (list width))
        (mask (1- width)))
   (defun get-depth (size)
     (log-floor (1- size) width))
@@ -53,14 +111,6 @@ difference between number and next power of base (anti-remainder)"
                               (+ level bits))))))
         (%path-to nil (- level)))))
 
-  (defun lookup-pbvt (pbvt index)
-    (with-slots (node size) pbvt
-      (case (signum (floor index size))
-        (0
-         (reduce #'aref (path-to index size) :initial-value node))
-        (otherwise
-         (error "bad index")))))
-
   (defun static-pbvt (&rest arguments)
     "When creating a vector from a known list of contents, we can allocate exactly the memory we require instead of recursively conj-ing and throwing away partially-filled arrays."
     (cond
@@ -75,7 +125,7 @@ difference between number and next power of base (anti-remainder)"
                                for remaining = size then (- remaining width)
                                collect
                                  (make-array
-                                  (list width)
+                                  width-dim
                                   :initial-contents
                                   (cond
                                     ((<= remaining width)
@@ -93,53 +143,6 @@ difference between number and next power of base (anti-remainder)"
             :size size
             :node (%static arguments size)))))))
 
-  (defun update-pbvt (pbvt index value)
-    (with-slots (node size) pbvt
-      (case (signum (floor index size))
-        (0
-         (let ((path (path-to index size)))
-           (labels ((%update (path node)
-                      (destructuring-bind (first-path . rest-path) path
-                        (let ((new-node (copy-seq node)))
-                          (cond
-                            ((endp rest-path)
-                             (setf (aref new-node first-path) value)
-                             new-node)
-                            (t
-                             (setf (aref new-node first-path)
-                                   (%update
-                                    rest-path
-                                    (aref node first-path)))
-                             new-node))))))
-             (make-instance
-              'pbvt
-              :size size
-              :node (%update path node)))))
-        (otherwise
-         (error "bad index")))))
-
-  (defun map-pbvt (pbvt fun)
-    (with-slots (node size) pbvt
-      (cond
-        ((zerop size)
-         nil)
-        (t
-         (let ((level (get-depth size)))
-           (labels ((%map (level node)
-                      (cond
-                        ((zerop level)
-                         (loop for val across node
-                            until (eql val +unbound+)
-                            collect (funcall fun val)))
-                        (t
-                         (loop for next-node across node
-                            until (eql next-node +unbound+)
-                            append (%map (1- level) next-node))))))
-             (%map level node)))))))
-
-  (defun collect-all (pbvt)
-    (map-pbvt pbvt #'identity))
-
   (defun conj-pbvt (pbvt value)
     (with-slots (node size) pbvt
       (case size
@@ -149,21 +152,21 @@ difference between number and next power of base (anti-remainder)"
           'pbvt
           :size 1
           :node (make-array
-                 (list width)
+                 width-dim
                  :adjustable nil
                  :initial-contents (list* value
-                                          (loop repeat (1- width)
+                                          (loop repeat width-1
                                              collect +unbound+)))))
         (1
          (make-instance
           'pbvt
           :size 2
           :node (make-array
-                 (list width)
+                 width-dim
                  :adjustable nil
                  :initial-contents (list* (aref node 0)
                                           value
-                                          (loop repeat (- width 2)
+                                          (loop repeat width-2
                                              collect +unbound+)))))
         (otherwise
          (multiple-value-bind (log remainder) (log-floor size width)
@@ -177,7 +180,7 @@ difference between number and next power of base (anti-remainder)"
                          'pbvt
                          :size (1+ size)
                          :node (make-array
-                                (list width)
+                                width-dim
                                 :adjustable nil
                                 :initial-contents
                                 (list*
@@ -186,21 +189,21 @@ difference between number and next power of base (anti-remainder)"
                                  ;; new node with one bottom-level entry second
                                  accum
                                  ;; then empty nodes
-                                 (loop repeat (- width 2)
+                                 (loop repeat width-2
                                     collect +unbound+)))))
                        (t
                         (let ((new-node
-                               (make-array (list width)
+                               (make-array width-dim
                                            :adjustable nil
                                            :initial-element +unbound+)))
                           (setf (aref new-node 0) accum)
                           (%conj-overflow new-node (1- i)))))))
                 (%conj-overflow
                  (make-array
-                  (list width)
+                  width-dim
                   :adjustable nil
                   :initial-contents (list* value
-                                           (loop repeat (1- width)
+                                           (loop repeat width-1
                                               collect +unbound+)))
                  (1- log))))
              (t
@@ -220,7 +223,7 @@ difference between number and next power of base (anti-remainder)"
                                     (cond
                                       ((eql next-node +unbound+)
                                        (make-array
-                                        (list width)
+                                        width-dim
                                         :adjustable nil
                                         :initial-element +unbound+))
                                       (t
@@ -245,11 +248,11 @@ difference between number and next power of base (anti-remainder)"
            'pbvt
            :size 1
            :node (make-array
-                  (list width)
+                  width-dim
                   :adjustable nil
                   :initial-contents
                   (list* (aref node 0)
-                         (loop repeat (1- width)
+                         (loop repeat width-1
                             collect +unbound+))))
           (aref node 1)))
         (otherwise

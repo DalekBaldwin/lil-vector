@@ -4,6 +4,9 @@
 
 (defsuite* test-all)
 
+(defun safe-shuffle (sequence)
+  (shuffle (copy-seq sequence)))
+
 (deftest vector-test ()
   (let ((*size* 1000)
         (*list-size* 1000)
@@ -29,7 +32,7 @@
          (let* ((updated-pbvt
                  (reduce (lambda (accum item)
                            (update-pbvt accum item (1+ item)))
-                         (shuffle (copy-seq indices))
+                         (safe-shuffle indices)
                          :initial-value pbvt))
                 (updated-pbvt-contents (map-pbvt updated-pbvt #'identity)))
            (is
