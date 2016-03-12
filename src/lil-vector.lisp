@@ -1,6 +1,8 @@
 (in-package :lil-vector)
 
-(define-symbol-macro _unbound_ '#:UNBOUND)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-symbol-macro +unbound+ (load-time-value __unbound__)))
+(defvar __unbound__ '#:UNBOUND)
 
 (defclass pbvt ()
   ((size
@@ -14,7 +16,7 @@ See http://hypirion.com/musings/understanding-persistent-vector-pt-1"))
   (make-instance
    'pbvt
    :size 0
-   :node _unbound_))
+   :node +unbound+))
 
 (defun log-floor (number base)
   "Like `floor` with respect to logarithm instead of division.
@@ -22,27 +24,19 @@ Returns three values:
 integer-valued logarithm
 remainder
 difference between number and next power of base (anti-remainder)"
-  (cond
-    ((zerop base)
-     (values 0 0 0))
-    ((zerop number)
-     (values 0 0 0))
-    ((= base 1)
-     (values 0 0 0))
-    (t
-     (labels ((%log-floor (log cur)
-                (let* ((next (* cur base))
-                       (diff (- next number)))
-                  (case (signum diff)
-                    (-1
-                     (%log-floor (1+ log) next))
-                    (0
-                     (values (1+ log) 0 diff))
-                    (1
-                     (values log (- number cur) diff))))))
-       (%log-floor 0 1)))))
+  (labels ((%log-floor (log cur)
+             (let* ((next (* cur base))
+                    (diff (- next number)))
+               (case (signum diff)
+                 (-1
+                  (%log-floor (1+ log) next))
+                 (0
+                  (values (1+ log) 0 diff))
+                 (1
+                  (values log (- number cur) diff))))))
+    (%log-floor 0 1)))
 
-(let* ((bits 2) ;; make interface parametric with respect to branching factor
+(let* ((bits 5) ;; make interface parametric with respect to branching factor
        (width (ash 1 bits))
        (mask (1- width)))
   (defun get-depth (size)
@@ -87,7 +81,7 @@ difference between number and next power of base (anti-remainder)"
                                     ((<= remaining width)
                                      (append (subseq chunk 0 remaining)
                                              (loop repeat (- width remaining)
-                                                collect _unbound_)))
+                                                collect +unbound+)))
                                     (t (subseq chunk 0 width)))))))
                       (cond
                         ((<= size width)
@@ -135,11 +129,11 @@ difference between number and next power of base (anti-remainder)"
                       (cond
                         ((zerop level)
                          (loop for val across node
-                            until (eql val _unbound_)
+                            until (eql val +unbound+)
                             collect (funcall fun val)))
                         (t
                          (loop for next-node across node
-                            until (eql next-node _unbound_)
+                            until (eql next-node +unbound+)
                             append (%map (1- level) next-node))))))
              (%map level node)))))))
 
@@ -159,7 +153,7 @@ difference between number and next power of base (anti-remainder)"
                  :adjustable nil
                  :initial-contents (list* value
                                           (loop repeat (1- width)
-                                             collect _unbound_)))))
+                                             collect +unbound+)))))
         (1
          (make-instance
           'pbvt
@@ -170,7 +164,7 @@ difference between number and next power of base (anti-remainder)"
                  :initial-contents (list* (aref node 0)
                                           value
                                           (loop repeat (- width 2)
-                                             collect _unbound_)))))
+                                             collect +unbound+)))))
         (otherwise
          (multiple-value-bind (log remainder) (log-floor size width)
            (cond
@@ -193,12 +187,12 @@ difference between number and next power of base (anti-remainder)"
                                  accum
                                  ;; then empty nodes
                                  (loop repeat (- width 2)
-                                    collect _unbound_)))))
+                                    collect +unbound+)))))
                        (t
                         (let ((new-node
                                (make-array (list width)
                                            :adjustable nil
-                                           :initial-element _unbound_)))
+                                           :initial-element +unbound+)))
                           (setf (aref new-node 0) accum)
                           (%conj-overflow new-node (1- i)))))))
                 (%conj-overflow
@@ -207,7 +201,7 @@ difference between number and next power of base (anti-remainder)"
                   :adjustable nil
                   :initial-contents (list* value
                                            (loop repeat (1- width)
-                                              collect _unbound_)))
+                                              collect +unbound+)))
                  (1- log))))
              (t
               (let ((path (path-to size size)))
@@ -224,11 +218,11 @@ difference between number and next power of base (anti-remainder)"
                                    (%conj
                                     rest-path
                                     (cond
-                                      ((eql next-node _unbound_)
+                                      ((eql next-node +unbound+)
                                        (make-array
                                         (list width)
                                         :adjustable nil
-                                        :initial-element _unbound_))
+                                        :initial-element +unbound+))
                                       (t
                                        (copy-seq next-node))))))
                                 node)))))
@@ -256,7 +250,7 @@ difference between number and next power of base (anti-remainder)"
                   :initial-contents
                   (list* (aref node 0)
                          (loop repeat (1- width)
-                            collect _unbound_))))
+                            collect +unbound+))))
           (aref node 1)))
         (otherwise
          (multiple-value-bind (log remainder) (log-floor (1- size) width)
@@ -280,7 +274,7 @@ difference between number and next power of base (anti-remainder)"
                                    (first-new-path . rest-new-path) new-path
                                (cond
                                  ((endp rest-path)
-                                  (setf (aref node first-path) _unbound_)
+                                  (setf (aref node first-path) +unbound+)
                                   node)
                                  ((= first-path first-new-path)
                                   (setf
@@ -291,7 +285,7 @@ difference between number and next power of base (anti-remainder)"
                                     (copy-seq (aref node first-path))))
                                   node)
                                  (t
-                                  (setf (aref node first-path) _unbound_)
+                                  (setf (aref node first-path) +unbound+)
                                   node))))))
                   (values
                    (make-instance

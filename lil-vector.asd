@@ -28,4 +28,4 @@
   ((:module :test
             :components ((:file "package")
                          (:file "lil-vector-test"))))
-  :depends-on (:lil-vector :stefil :alexandria))
+  :depends-on (:lil-vector :stefil :alexandria :check-it))

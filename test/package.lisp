@@ -1,7 +1,7 @@
 (in-package :cl-user)
 
 (defpackage :lil-vector-test
-  (:use :cl :lil-vector :stefil :alexandria)
+  (:use :cl :lil-vector :stefil :alexandria :check-it)
   (:export
    #:test-all))
 
