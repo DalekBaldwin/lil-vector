@@ -478,7 +478,7 @@ difference between number and next power of base (anti-remainder)"
      ;;pure:<map-join-from-fold-left*-insert>
      ;;pure:<map-singleton-from-insert>
      ;;pure:<map-update-key-from-lookup-insert-drop>
-     pure:<vector>)
+     <vector>)
   ()
   (:method> pure:empty ()
     +empty-pbvt+)

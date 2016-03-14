@@ -13,7 +13,7 @@
             :components ((:file "package")
                          (:file "lil-vector"))
             :serial t))
-  :depends-on ()
+  :depends-on (:lisp-interface-library)
   :in-order-to ((test-op (load-op :lil-vector-test)))
   :perform (test-op :after (op c)
                     (funcall
