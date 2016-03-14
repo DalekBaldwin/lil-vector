@@ -93,6 +93,113 @@ difference between number and next power of base (anti-remainder)"
                           append (%map (1- level) next-node))))))
            (%map level node)))))))
 
+(defun fold-left-pbvt (pbvt function seed)
+  (cond
+    ((eql pbvt +empty-pbvt+)
+     seed)
+    (t
+     (with-slots (node size) pbvt
+       ;;#+nil
+       (let ((level (get-depth size))
+             (path (path-to (1- size) size)))
+         (labels ((%fold-all (level node seed)
+                    (cond
+                      ((zerop level)
+                       (reduce function node :initial-value seed))
+                      (t
+                       (reduce (lambda (accum item)
+                                 (%fold-all (1- level) item accum))
+                               node
+                               :initial-value seed))))
+                  (%fold-left (level path node seed)
+                    (cond
+                      ((zerop level)
+                       (reduce function node
+                               :end (1+ (first path))
+                               :initial-value seed))
+                      (t
+                       (destructuring-bind (first-path . rest-path) path
+                         (let ((full-subtree-accum
+                                (reduce (lambda (accum item)
+                                          (%fold-all (1- level) item accum))
+                                        node
+                                        :end first-path
+                                        :initial-value seed)))
+                           (%fold-left
+                            (1- level)
+                            rest-path
+                            (aref node first-path)
+                            full-subtree-accum)))))))
+           (%fold-left level path node seed)))
+       #+nil
+       (let ((level (get-depth size)))
+         (labels ((%fold-left (level node seed)
+                    (cond
+                      ((zerop level)
+                       (catch 'unbound
+                         (reduce (lambda (accum item)
+                                   (cond
+                                     ((eql item +unbound+)
+                                      (throw 'unbound accum))
+                                     (t
+                                      (funcall function accum item))))
+                                 node
+                                 :initial-value seed)))
+                      (t
+                       (catch 'unbound
+                         (reduce (lambda (accum item)
+                                   (cond
+                                     ((eql item +unbound+)
+                                      (throw 'unbound accum))
+                                     (t
+                                      (%fold-left (1- level) item accum))))
+                                 node
+                                 :initial-value seed))))))
+           (%fold-left level node seed)))))))
+
+(defun fold-right-pbvt (pbvt function seed)
+  (cond
+    ((eql pbvt +empty-pbvt+)
+     seed)
+    (t
+     (with-slots (node size) pbvt
+       (let ((level (get-depth size))
+             (path (path-to (1- size) size)))
+         (labels ((%fold-all (level node seed)
+                    (cond
+                      ((zerop level)
+                       (reduce function node
+                               :from-end t
+                               :initial-value seed))
+                      (t
+                       (reduce (lambda (item accum)
+                                 (%fold-all (1- level) item accum))
+                               node
+                               :from-end t
+                               :initial-value seed))))
+                  (%fold-right (level path node seed)
+                    (cond
+                      ((zerop level)
+                       (reduce function node
+                               :from-end t
+                               :end (1+ (first path))
+                               :initial-value seed))
+                      (t
+                       (destructuring-bind (first-path . rest-path) path
+                         (let ((partial-subtree-accum
+                                (%fold-right
+                                 (1- level)
+                                 rest-path
+                                 (aref node first-path)
+                                 seed)))
+                           (reduce (lambda (item accum)
+                                     (%fold-all (1- level) item accum))
+                                   node
+                                   :from-end t
+                                   :end first-path
+                                   :initial-value partial-subtree-accum)))))))
+           (%fold-right level path node seed)))))))
+
 (defun collect-all (pbvt)
   (map-pbvt pbvt #'identity))
 
@@ -441,7 +548,149 @@ difference between number and next power of base (anti-remainder)"
                                         collect +unbound+)))))
                                 (loop repeat (- width first-path)
                                    collect +unbound+))
-                               'vector)))))))))))))))))))
+                               'vector))))))))))))))))))
+
+  (defun fold-left*-pbvt (pbvt function seed)
+    (cond
+      ((eql pbvt +empty-pbvt+)
+       seed)
+      (t
+       (with-slots (node size) pbvt
+         (let ((level (get-depth size))
+               (path (path-to (1- size) size)))
+           (labels
+               ((%fold-all (level node seed)
+                  (cond
+                    ((zerop level)
+                     (reduce (lambda (accum item)
+                               (destructuring-bind (count . stuff)
+                                   accum
+                                 (cons
+                                  (1+ count)
+                                  (funcall function stuff count item))))
+                             node
+                             :initial-value seed))
+                    (t
+                     (reduce (lambda (accum item)
+                               (%fold-all (1- level) item accum))
+                             node
+                             :initial-value seed))))
+                (%fold-left* (level path node seed)
+                  (cond
+                    ((zerop level)
+                     (reduce (lambda (accum item)
+                               (destructuring-bind (count . stuff)
+                                   accum
+                                 (cons
+                                  (1+ count)
+                                  (funcall function stuff count item))))
+                             node
+                             :end (1+ (first path))
+                             :initial-value seed))
+                    (t
+                     (destructuring-bind (first-path . rest-path) path
+                       (let ((full-subtree-accum
+                              (reduce (lambda (accum item)
+                                        (%fold-all (1- level) item accum))
+                                      node
+                                      :end first-path
+                                      :initial-value seed)))
+                         (%fold-left*
+                          (1- level)
+                          rest-path
+                          (aref node first-path)
+                          full-subtree-accum)))))))
+             (cdr
+              (%fold-left* level path node (cons 0 seed)))))
+         #+nil
+         (let* ((level (get-depth size)))
+           (labels
+               ((%fold-left* (level node seed)
+                  (cond
+                    ((zerop level)
+                     (catch 'unbound
+                       (reduce (lambda (accum item)
+                                 (cond
+                                   ((eql item +unbound+)
+                                    (throw 'unbound accum))
+                                   (t
+                                    (destructuring-bind
+                                          (count . stuff)
+                                        accum
+                                      (cons
+                                       (1+ count)
+                                       (funcall function
+                                                stuff count item))))))
+                               node
+                               :initial-value seed)))
+                    (t
+                     (catch 'unbound
+                       (reduce (lambda (accum item)
+                                 (cond
+                                   ((eql item +unbound+)
+                                    (throw 'unbound accum))
+                                   (t
+                                    (%fold-left* (1- level) item accum))))
+                               node
+                               :initial-value seed))))))
+             (cdr
+              (%fold-left* level node (cons 0 seed)))))))))
+
+  (defun fold-right*-pbvt (pbvt function seed)
+    (cond
+      ((eql pbvt +empty-pbvt+)
+       seed)
+      (t
+       (with-slots (node size) pbvt
+         (let ((level (get-depth size))
+               (path (path-to (1- size) size)))
+           (labels ((%fold-all (level node seed)
+                      (cond
+                        ((zerop level)
+                         (reduce (lambda (item accum)
+                                   (destructuring-bind (index . stuff)
+                                       accum
+                                     (cons
+                                      (1- index)
+                                      (funcall function index item stuff))))
+                                 node
+                                 :from-end t
+                                 :initial-value seed))
+                        (t
+                         (reduce (lambda (accum item)
+                                   (%fold-all (1- level) item accum))
+                                 node
+                                 :from-end t
+                                 :initial-value seed))))
+                    (%fold-right (level path node seed)
+                      (cond
+                        ((zerop level)
+                         (reduce (lambda (item accum)
+                                   (destructuring-bind (index . stuff)
+                                       accum
+                                     (cons
+                                      (1- index)
+                                      (funcall function index item stuff))))
+                                 node
+                                 :from-end t
+                                 :end (1+ (first path))
+                                 :initial-value seed))
+                        (t
+                         (destructuring-bind (first-path . rest-path) path
+                           (let ((partial-subtree-accum
+                                  (%fold-right
+                                   (1- level)
+                                   rest-path
+                                   (aref node first-path)
+                                   seed)))
+                             (reduce (lambda (item accum)
+                                       (%fold-all (1- level) item accum))
+                                     node
+                                     :from-end t
+                                     :end first-path
+                                     :initial-value partial-subtree-accum)))))))
+             (cdr
+              (%fold-right level path node (cons (1- size) seed))))))))))
 
 (defun equal-pbvt (x y)
   (with-slots ((size-x size) (node-x node)) x

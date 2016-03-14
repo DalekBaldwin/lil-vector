@@ -6,6 +6,10 @@
            #:lookup-pbvt
            #:static-pbvt
            #:update-pbvt
+           #:fold-left-pbvt
+           #:fold-left*-pbvt
+           #:fold-right-pbvt
+           #:fold-right*-pbvt
            #:map-pbvt
            #:collect-all
            #:conj-pbvt
