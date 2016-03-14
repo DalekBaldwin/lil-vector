@@ -11,7 +11,7 @@
   ((:static-file "lil-vector.asd")
    (:module :src
             :components ((:file "package")
-                         (:file "lil-vector"))
+                         (:file "pbvt"))
             :serial t))
   :depends-on (:lisp-interface-library)
   :in-order-to ((test-op (load-op :lil-vector-test)))
