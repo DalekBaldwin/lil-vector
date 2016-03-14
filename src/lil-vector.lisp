@@ -12,11 +12,16 @@
   (:documentation "Persistent bit-partitioned vector trie, as in Clojure.
 See http://hypirion.com/musings/understanding-persistent-vector-pt-1"))
 
-(defun empty-pbvt ()
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-symbol-macro +empty-pbvt+ (load-time-value __empty-pbvt__)))
+(defvar __empty-pbvt__
   (make-instance
    'pbvt
    :size 0
    :node +unbound+))
+
+(defun empty-pbvt ()
+  +empty-pbvt+)
 
 (defun log-floor (number base)
   "Like `floor` with respect to logarithm instead of division.
@@ -295,7 +300,154 @@ difference between number and next power of base (anti-remainder)"
                     'pbvt
                     :size (1- size)
                     :node (%pop path new-path (copy-seq node)))
-                   (lookup-pbvt pbvt (1- size)))))))))))))
+                   (lookup-pbvt pbvt (1- size))))))))))))
+
+  (defun divide-pbvt (pbvt)
+    ;; a lot of special cases here. (width-1)/width of the time, we need to copy
+    ;; a lot of stuff to create a new right vector out of elements that are not
+    ;; aligned at the same offset, so we only divide things up at the first or
+    ;; second level to make this operation effectively connstant time while,
+    ;; making the resulting vectors comparably sized, especially with a
+    ;; bit-basis of 5 like Clojure has
+    (with-slots (node size) pbvt
+      (case size
+        (0
+         (values +empty-pbvt+ +empty-pbvt+))
+        (1
+         (values +empty-pbvt+ pbvt))
+        (otherwise
+         (let ((level (get-depth size)))
+           (case level
+             (0
+              (let ((left-size (floor size 2)))
+                (values
+                 (make-instance
+                  'pbvt
+                  :size left-size
+                  :node (let ((array (copy-seq node)))
+                          (loop for i from left-size below width
+                             do (setf (aref array i) +unbound+))
+                          array))
+                 (make-instance
+                  'pbvt
+                  :size (- size left-size)
+                  :node (make-array
+                         width-dim
+                         :initial-contents
+                         (append
+                          (loop for i from left-size below width
+                             collect (aref node i))
+                          (loop repeat left-size collect +unbound+)))))))
+             (otherwise
+              (destructuring-bind (first-path second-path . rest-path)
+                  (path-to (1- size) size)
+                (declare (ignore rest-path))
+                (let* ((chunk-size (expt width (1- level)))
+                       (num-chunks
+                        (+ (* first-path width)
+                           (1+ second-path)))
+                       (left-chunks (floor num-chunks 2))
+                       (left-size (* chunk-size left-chunks))
+                       (right-size (- size left-size)))
+                  (case first-path
+                    (1 ;; resulting vectors will be one level lower
+                     (let ((node0 (aref node 0))
+                           (node1 (aref node 1)))
+                       (values
+                        (make-instance
+                         'pbvt
+                         :size left-size
+                         :node (let* ((array (copy-seq node0)))
+                                 (loop for i from left-chunks below width
+                                    do (setf (aref array i) +unbound+))
+                                 array))
+                        (make-instance
+                         'pbvt
+                         :size right-size
+                         :node (make-array
+                                width-dim
+                                :initial-contents
+                                (append (loop for i from left-chunks below width
+                                           collect (aref node0 i))
+                                        (loop for i from 0 upto second-path
+                                           collect (aref node1 i))
+                                        (loop for i from 0
+                                           below (- (+ width left-chunks)
+                                                    num-chunks)
+                                           collect +unbound+)))))))
+                    (otherwise
+                     (multiple-value-bind (outer-offset inner-offset)
+                         (floor left-chunks width)
+                       (let* ((splitting-node (aref node outer-offset)))
+                         (values
+                          (make-instance
+                           'pbvt
+                           :size left-size
+                           :node
+                           (cond
+                             ((and (= outer-offset 1)
+                                   (= inner-offset 0))
+                              (aref node 0))
+                             (t
+                              (make-array
+                               width-dim
+                               :initial-contents
+                               (append
+                                (loop for i from 0 below outer-offset
+                                   for subnode across node
+                                   collect subnode)
+                                (list
+                                 (let ((array (copy-seq splitting-node)))
+                                   (loop for i from inner-offset below width
+                                      do (setf (aref array i) +unbound+))
+                                   array))
+                                (loop for i from (1+ outer-offset)
+                                   below width
+                                   collect +unbound+))))))
+                          (make-instance
+                           'pbvt
+                           :size right-size
+                           :node
+                           (case inner-offset
+                             (0
+                              (coerce
+                               (loop for i from outer-offset upto first-path
+                                  collect (aref node i))
+                               'vector))
+                             (otherwise
+                              (coerce
+                               (append
+                                (loop for i from outer-offset below first-path
+                                   collect
+                                     (make-array
+                                      width-dim
+                                      :initial-contents
+                                      (let ((subnode (aref node i))
+                                            (next-subnode (aref node (1+ i))))
+                                        (append
+                                         (loop for j from inner-offset below width
+                                            collect (aref subnode j))
+                                         (loop for j from 0 below inner-offset
+                                            collect (aref next-subnode j))))))
+                                (let ((subnode (aref node first-path)))
+                                  (list
+                                   (make-array
+                                    width-dim
+                                    :initial-contents
+                                    (append
+                                     (loop for i from inner-offset below width
+                                        collect (aref subnode i))
+                                     (loop repeat inner-offset
+                                        collect +unbound+)))))
+                                (loop repeat (- width first-path)
+                                   collect +unbound+))
+                               'vector)))))))))))))))))))
+
+(defun equal-pbvt (x y)
+  (with-slots ((size-x size) (node-x node)) x
+    (with-slots ((size-y size) (node-y node)) y
+      (and (= size-x size-y)
+           (equalp node-x node-y)))))
 
 ;; print vector clojurely
 (defmethod print-object ((object pbvt) stream)
@@ -309,3 +461,35 @@ difference between number and next power of base (anti-remainder)"
          (pprint-exit-if-list-exhausted)
          (write-char #\Space stream)
          (pprint-newline :fill stream)))))
+
+(interface:define-interface <vector> (pure:<map>)
+  ()
+  (:abstract)
+  (:generic> slice (vector start end))
+  (:generic> insert-at (vector pos value))
+  (:generic> splice-at (vector pos vector))
+  (:generic> concat (vector1 vector2)))
+
+(interface:define-interface <pbvt>
+    (pure:<copy-is-identity>
+     pure:<map-foldable-from-*>
+     ;;pure:<map-fold-right*-from-fold-left*>
+     ;;pure:<map-has-key-p-from-lookup>
+     ;;pure:<map-join-from-fold-left*-insert>
+     ;;pure:<map-singleton-from-insert>
+     ;;pure:<map-update-key-from-lookup-insert-drop>
+     pure:<vector>)
+  ()
+  (:method> pure:empty ()
+    +empty-pbvt+)
+  (:method> pure:lookup (map key)
+    (lookup-pbvt map key))
+  ;;(:method> pure:insert (map key value))
+  ;;(:method> pure:drop (map key))
+  ;;(:method> pure:fold-left* (foldable function seed))
+  ;;(:method> pure:fold-right* (map function seed))
+  ;;(:method> pure:first-key-value (map))
+  (:method> pure:divide (collection)
+    (divide-hamt collection))
+  (:singleton)
+  (:documentation "hash array-mapped trie"))

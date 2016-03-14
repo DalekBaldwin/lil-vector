@@ -7,8 +7,11 @@
            #:static-pbvt
            #:update-pbvt
            #:map-pbvt
+           #:collect-all
            #:conj-pbvt
-           #:pop-pbvt))
+           #:pop-pbvt
+           #:divide-pbvt
+           #:equal-pbvt))
 
 (in-package :lil-vector)
 
