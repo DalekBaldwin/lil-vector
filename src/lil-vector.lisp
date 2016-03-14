@@ -492,4 +492,4 @@ difference between number and next power of base (anti-remainder)"
   (:method> pure:divide (collection)
     (divide-hamt collection))
   (:singleton)
-  (:documentation "hash array-mapped trie"))
+  (:documentation "persistent bit-partitioned vector trie"))
