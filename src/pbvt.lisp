@@ -224,32 +224,35 @@ difference between number and next power of base (anti-remainder)"
         (%path-to nil (- level)))))
 
   (defun static-pbvt (&rest arguments)
-    "When creating a vector from a known list of contents, we can allocate exactly the memory we require instead of recursively conj-ing and throwing away partially-filled arrays."
+    "When creating a vector from a known list of contents, we can allocate
+exactly the memory we require instead of recursively conj-ing and throwing away
+partially-filled arrays."
     (cond
       ((endp arguments)
        (empty-pbvt))
       (t
        (let ((size (length arguments)))
-         (labels ((%static (stuff size)
-                    (let* ((array-chunks
-                            (loop for chunk on stuff
-                               by (lambda (x) (nthcdr width x))
-                               for remaining = size then (- remaining width)
-                               collect
-                                 (make-array
-                                  width-dim
-                                  :initial-contents
-                                  (cond
-                                    ((<= remaining width)
-                                     (append (subseq chunk 0 remaining)
-                                             (loop repeat (- width remaining)
-                                                collect +unbound+)))
-                                    (t (subseq chunk 0 width)))))))
-                      (cond
-                        ((<= size width)
-                         (first array-chunks))
-                        (t
-                         (%static array-chunks (length array-chunks)))))))
+         (labels
+             ((%static (stuff size)
+                (let* ((array-chunks
+                        (loop for chunk on stuff
+                           by (lambda (x) (nthcdr width x))
+                           for remaining = size then (- remaining width)
+                           collect
+                             (make-array
+                              width-dim
+                              :initial-contents
+                              (cond
+                                ((<= remaining width)
+                                 (append (subseq chunk 0 remaining)
+                                         (loop repeat (- width remaining)
+                                            collect +unbound+)))
+                                (t (subseq chunk 0 width)))))))
+                  (cond
+                    ((<= size width)
+                     (first array-chunks))
+                    (t
+                     (%static array-chunks (length array-chunks)))))))
            (make-instance
             'pbvt
             :size size
@@ -721,7 +724,7 @@ difference between number and next power of base (anti-remainder)"
 
 (interface:define-interface <pbvt>
     (pure:<copy-is-identity>
-     pure:<map-foldable-from-*>
+     ;;pure:<map-foldable-from-*>
      ;;pure:<map-fold-right*-from-fold-left*>
      ;;pure:<map-has-key-p-from-lookup>
      ;;pure:<map-join-from-fold-left*-insert>
@@ -735,10 +738,16 @@ difference between number and next power of base (anti-remainder)"
     (lookup-pbvt map key))
   ;;(:method> pure:insert (map key value))
   ;;(:method> pure:drop (map key))
-  ;;(:method> pure:fold-left* (foldable function seed))
-  ;;(:method> pure:fold-right* (map function seed))
+  (:method> pure:fold-left (foldable function seed)
+    (fold-left-pbvt foldable function seed))
+  (:method> pure:fold-left* (foldable function seed)
+    (fold-left*-pbvt foldable function seed))
+  (:method> pure:fold-right (map function seed)
+    (fold-right-pbvt foldable function seed))
+  (:method> pure:fold-right* (map function seed)
+    (fold-right*-pbvt foldable function seed))
   ;;(:method> pure:first-key-value (map))
   (:method> pure:divide (collection)
-    (divide-hamt collection))
+    (divide-pbvt collection))
   (:singleton)
   (:documentation "persistent bit-partitioned vector trie"))
