@@ -13,7 +13,7 @@
             :components ((:file "package")
                          (:file "pbvt"))
             :serial t))
-  :depends-on (:lisp-interface-library)
+  :depends-on (:lisp-interface-library :alexandria)
   :in-order-to ((test-op (load-op :lil-vector-test)))
   :perform (test-op :after (op c)
                     (funcall

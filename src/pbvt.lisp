@@ -4,21 +4,24 @@
   (define-symbol-macro +unbound+ (load-time-value __unbound__)))
 (defvar __unbound__ '#:UNBOUND)
 
-(defclass pbvt ()
-  ((size
-    :initarg :size)
-   (node
-    :initarg :node))
-  (:documentation "Persistent bit-partitioned vector trie, as in Clojure.
-See http://hypirion.com/musings/understanding-persistent-vector-pt-1"))
+(defstruct pbvt
+  "Persistent bit-partitioned vector trie, as in Clojure.
+See http://hypirion.com/musings/understanding-persistent-vector-pt-1"
+  (size
+   0
+   :type fixnum
+   :read-only t)
+  (node
+   #()
+   :type simple-vector
+   :read-only t))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-symbol-macro +empty-pbvt+ (load-time-value __empty-pbvt__)))
 (defvar __empty-pbvt__
-  (make-instance
-   'pbvt
+  (make-pbvt
    :size 0
-   :node +unbound+))
+   :node (make-array 0)))
 
 (defun empty-pbvt ()
   +empty-pbvt+)
@@ -41,16 +44,32 @@ difference between number and next power of base (anti-remainder)"
                   (values log (- number cur) diff))))))
     (%log-floor 0 1)))
 
+(defmacro let-accessed (slots instance &body body)
+  "Bind variables via accessors one time only at the top of the scope."
+  (once-only (instance)
+    `(let (,@(loop for slot-entry in slots
+                collect
+                  (cond
+                    ((listp slot-entry)
+                     (destructuring-bind
+                           (var-name accessor-name) slot-entry
+                       `(,var-name (,accessor-name ,instance))))
+                    (t
+                     `(,slot-entry (,slot-entry ,instance))))))
+       ,@body)))
+
 (defun lookup-pbvt (pbvt index)
-    (with-slots (node size) pbvt
-      (case (signum (floor index size))
-        (0
-         (reduce #'aref (path-to index size) :initial-value node))
-        (otherwise
-         (error "bad index")))))
+  (let-accessed ((node pbvt-node)
+                 (size pbvt-size)) pbvt
+    (case (signum (floor index size))
+      (0
+       (reduce #'aref (path-to index size) :initial-value node))
+      (otherwise
+       (error "bad index")))))
 
 (defun update-pbvt (pbvt index value)
-  (with-slots (node size) pbvt
+  (let-accessed ((node pbvt-node)
+                 (size pbvt-size)) pbvt
     (case (signum (floor index size))
       (0
        (let ((path (path-to index size)))
@@ -67,15 +86,15 @@ difference between number and next power of base (anti-remainder)"
                                   rest-path
                                   (aref node first-path)))
                            new-node))))))
-           (make-instance
-            'pbvt
+           (make-pbvt
             :size size
             :node (%update path node)))))
       (otherwise
        (error "bad index")))))
 
 (defun map-pbvt (pbvt fun)
-  (with-slots (node size) pbvt
+  (let-accessed ((node pbvt-node)
+                 (size pbvt-size)) pbvt
     (cond
       ((zerop size)
        nil)
@@ -98,7 +117,8 @@ difference between number and next power of base (anti-remainder)"
     ((eql pbvt +empty-pbvt+)
      seed)
     (t
-     (with-slots (node size) pbvt
+     (let-accessed ((node pbvt-node)
+                    (size pbvt-size)) pbvt
        ;;#+nil
        (let ((level (get-depth size))
              (path (path-to (1- size) size)))
@@ -162,7 +182,8 @@ difference between number and next power of base (anti-remainder)"
     ((eql pbvt +empty-pbvt+)
      seed)
     (t
-     (with-slots (node size) pbvt
+     (let-accessed ((node pbvt-node)
+                    (size pbvt-size)) pbvt
        (let ((level (get-depth size))
              (path (path-to (1- size) size)))
          (labels ((%fold-all (level node seed)
@@ -203,11 +224,19 @@ difference between number and next power of base (anti-remainder)"
 (defun collect-all (pbvt)
   (map-pbvt pbvt #'identity))
 
+(defun partial-update-array-from-list (array start end source)
+  (let ((new-array (copy-seq array)))
+    (values
+     (loop for i from start below end
+        for things on source
+        do (setf (aref new-array i) (first things))
+        finally (return things))
+     new-array)))
+
 (let* ((bits 5) ;; make interface parametric with respect to branching factor
        (width (ash 1 bits))
        (width-1 (1- width))
        (width-2 (- width 2))
-       (width-dim (list width))
        (mask (1- width)))
   (defun get-depth (size)
     (log-floor (1- size) width))
@@ -240,7 +269,7 @@ partially-filled arrays."
                            for remaining = size then (- remaining width)
                            collect
                              (make-array
-                              width-dim
+                              width
                               :initial-contents
                               (cond
                                 ((<= remaining width)
@@ -253,31 +282,28 @@ partially-filled arrays."
                      (first array-chunks))
                     (t
                      (%static array-chunks (length array-chunks)))))))
-           (make-instance
-            'pbvt
+           (make-pbvt
             :size size
             :node (%static arguments size)))))))
 
   (defun conj-pbvt (pbvt value)
-    (with-slots (node size) pbvt
+    (let-accessed ((node pbvt-node) (size pbvt-size)) pbvt
       (case size
         ;; log-floor doesn't return meaningful info for 0 or 1
         (0
-         (make-instance
-          'pbvt
+         (make-pbvt
           :size 1
           :node (make-array
-                 width-dim
+                 width
                  :adjustable nil
                  :initial-contents (list* value
                                           (loop repeat width-1
                                              collect +unbound+)))))
         (1
-         (make-instance
-          'pbvt
+         (make-pbvt
           :size 2
           :node (make-array
-                 width-dim
+                 width
                  :adjustable nil
                  :initial-contents (list* (aref node 0)
                                           value
@@ -291,11 +317,10 @@ partially-filled arrays."
                   ((%conj-overflow (accum i)
                      (cond
                        ((zerop i)
-                        (make-instance
-                         'pbvt
+                        (make-pbvt
                          :size (1+ size)
                          :node (make-array
-                                width-dim
+                                width
                                 :adjustable nil
                                 :initial-contents
                                 (list*
@@ -308,14 +333,14 @@ partially-filled arrays."
                                     collect +unbound+)))))
                        (t
                         (let ((new-node
-                               (make-array width-dim
+                               (make-array width
                                            :adjustable nil
                                            :initial-element +unbound+)))
                           (setf (aref new-node 0) accum)
                           (%conj-overflow new-node (1- i)))))))
                 (%conj-overflow
                  (make-array
-                  width-dim
+                  width
                   :adjustable nil
                   :initial-contents (list* value
                                            (loop repeat width-1
@@ -338,19 +363,18 @@ partially-filled arrays."
                                     (cond
                                       ((eql next-node +unbound+)
                                        (make-array
-                                        width-dim
+                                        width
                                         :adjustable nil
                                         :initial-element +unbound+))
                                       (t
                                        (copy-seq next-node))))))
                                 node)))))
-                  (make-instance
-                   'pbvt
+                  (make-pbvt
                    :size (1+ size)
                    :node (%conj path (copy-seq node))))))))))))
 
   (defun pop-pbvt (pbvt)
-    (with-slots (node size) pbvt
+    (let-accessed ((node pbvt-node) (size pbvt-size)) pbvt
       (case size
         (0
          (error "attempted to pop empty vector"))
@@ -359,11 +383,10 @@ partially-filled arrays."
         ;; don't take log-floor of 1
         (2
          (values
-          (make-instance
-           'pbvt
+          (make-pbvt
            :size 1
            :node (make-array
-                  width-dim
+                  width
                   :adjustable nil
                   :initial-contents
                   (list* (aref node 0)
@@ -375,8 +398,7 @@ partially-filled arrays."
            (cond
              ((zerop remainder) ;; root killing case
               (values
-               (make-instance
-                'pbvt
+               (make-pbvt
                 :size (1- size)
                 :node (aref node 0))
                (reduce #'aref
@@ -406,8 +428,7 @@ partially-filled arrays."
                                   (setf (aref node first-path) +unbound+)
                                   node))))))
                   (values
-                   (make-instance
-                    'pbvt
+                   (make-pbvt
                     :size (1- size)
                     :node (%pop path new-path (copy-seq node)))
                    (lookup-pbvt pbvt (1- size))))))))))))
@@ -419,7 +440,7 @@ partially-filled arrays."
     ;; second level to make this operation effectively connstant time while,
     ;; making the resulting vectors comparably sized, especially with a
     ;; bit-basis of 5 like Clojure has
-    (with-slots (node size) pbvt
+    (let-accessed ((node pbvt-node) (size pbvt-size)) pbvt
       (case size
         (0
          (values +empty-pbvt+ +empty-pbvt+))
@@ -431,18 +452,16 @@ partially-filled arrays."
              (0
               (let ((left-size (floor size 2)))
                 (values
-                 (make-instance
-                  'pbvt
+                 (make-pbvt
                   :size left-size
                   :node (let ((array (copy-seq node)))
                           (loop for i from left-size below width
                              do (setf (aref array i) +unbound+))
                           array))
-                 (make-instance
-                  'pbvt
+                 (make-pbvt
                   :size (- size left-size)
                   :node (make-array
-                         width-dim
+                         width
                          :initial-contents
                          (append
                           (loop for i from left-size below width
@@ -464,18 +483,16 @@ partially-filled arrays."
                      (let ((node0 (aref node 0))
                            (node1 (aref node 1)))
                        (values
-                        (make-instance
-                         'pbvt
+                        (make-pbvt
                          :size left-size
                          :node (let* ((array (copy-seq node0)))
                                  (loop for i from left-chunks below width
                                     do (setf (aref array i) +unbound+))
                                  array))
-                        (make-instance
-                         'pbvt
+                        (make-pbvt
                          :size right-size
                          :node (make-array
-                                width-dim
+                                width
                                 :initial-contents
                                 (append (loop for i from left-chunks below width
                                            collect (aref node0 i))
@@ -490,8 +507,7 @@ partially-filled arrays."
                          (floor left-chunks width)
                        (let* ((splitting-node (aref node outer-offset)))
                          (values
-                          (make-instance
-                           'pbvt
+                          (make-pbvt
                            :size left-size
                            :node
                            (cond
@@ -500,7 +516,7 @@ partially-filled arrays."
                               (aref node 0))
                              (t
                               (make-array
-                               width-dim
+                               width
                                :initial-contents
                                (append
                                 (loop for i from 0 below outer-offset
@@ -514,8 +530,7 @@ partially-filled arrays."
                                 (loop for i from (1+ outer-offset)
                                    below width
                                    collect +unbound+))))))
-                          (make-instance
-                           'pbvt
+                          (make-pbvt
                            :size right-size
                            :node
                            (case inner-offset
@@ -530,7 +545,7 @@ partially-filled arrays."
                                 (loop for i from outer-offset below first-path
                                    collect
                                      (make-array
-                                      width-dim
+                                      width
                                       :initial-contents
                                       (let ((subnode (aref node i))
                                             (next-subnode (aref node (1+ i))))
@@ -542,7 +557,7 @@ partially-filled arrays."
                                 (let ((subnode (aref node first-path)))
                                   (list
                                    (make-array
-                                    width-dim
+                                    width
                                     :initial-contents
                                     (append
                                      (loop for i from inner-offset below width
@@ -558,7 +573,7 @@ partially-filled arrays."
       ((eql pbvt +empty-pbvt+)
        seed)
       (t
-       (with-slots (node size) pbvt
+       (let-accessed ((node pbvt-node) (size pbvt-size)) pbvt
          (let ((level (get-depth size))
                (path (path-to (1- size) size)))
            (labels
@@ -644,7 +659,7 @@ partially-filled arrays."
       ((eql pbvt +empty-pbvt+)
        seed)
       (t
-       (with-slots (node size) pbvt
+       (let-accessed ((node pbvt-node) (size pbvt-size)) pbvt
          (let ((level (get-depth size))
                (path (path-to (1- size) size)))
            (labels ((%fold-all (level node seed)
@@ -696,8 +711,8 @@ partially-filled arrays."
               (%fold-right level path node (cons (1- size) seed))))))))))
 
 (defun equal-pbvt (x y)
-  (with-slots ((size-x size) (node-x node)) x
-    (with-slots ((size-y size) (node-y node)) y
+  (let-accessed ((size-x pbvt-size) (node-x pbvt-node)) x
+    (let-accessed ((size-y pbvt-size) (node-y pbvt-node)) y
       (and (= size-x size-y)
            (equalp node-x node-y)))))
 

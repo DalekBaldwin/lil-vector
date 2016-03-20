@@ -1,7 +1,7 @@
 (in-package :cl-user)
 
 (defpackage :lil-vector
-  (:use :cl)
+  (:use :cl :alexandria)
   (:export #:empty-pbvt
            #:lookup-pbvt
            #:static-pbvt
